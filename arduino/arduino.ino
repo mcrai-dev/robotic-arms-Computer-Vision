@@ -35,16 +35,20 @@ void loop() {
   if (Serial.available() > 0) {
     inputString = Serial.readStringUntil('\n');
 
-    // Extraire les informations X, Y et Length
+    // Extraire les informations X, Y, Length et Angle
     if (inputString.startsWith("X:")) {
       int x_start = inputString.indexOf(':') + 1;
       int y_start = inputString.indexOf('Y:') + 2;
       int length_start = inputString.indexOf("Length:") + 7;
+      int angle_start = inputString.indexOf("Angle:") + 6;
 
-      // Convertir les sous-chaînes en valeurs numériques
       x_position = inputString.substring(x_start, inputString.indexOf(',')).toInt();
       y_position = inputString.substring(y_start, inputString.indexOf(',', y_start)).toInt();
-      length = inputString.substring(length_start).toFloat();
+      length = inputString.substring(length_start, inputString.indexOf(',', length_start) > 0 ? inputString.indexOf(',', length_start) : inputString.length()).toFloat();
+      float angle = 0.0;
+      if (inputString.indexOf("Angle:") > 0) {
+        angle = inputString.substring(angle_start).toFloat();
+      }
 
       // Afficher les valeurs reçues pour vérification
       Serial.print("X Position: ");
@@ -53,15 +57,19 @@ void loop() {
       Serial.println(y_position);
       Serial.print("Longueur: ");
       Serial.println(length);
+      Serial.print("Angle: ");
+      Serial.println(angle);
 
-      // Déplacer le bras vers la position du tuyau
-      move_arm_to_position(x_position, y_position);
+      // Déplacer le bras vers la position et l'orientation du tuyau
+      move_arm_to_position(x_position, y_position, angle);
       
       // Saisir le tuyau si la longueur est supérieure à une certaine valeur
-      if (length > 50.0) { // Ajuster ce seuil selon la taille réelle du tuyau
+      if (length > 50.0) {
         grab_pipe();
+        Serial.println("STATUS:OK");
       } else {
         Serial.println("Tuyau trop petit pour être saisi.");
+        Serial.println("STATUS:FAIL");
       }
     }
   }
@@ -78,21 +86,26 @@ void initialize_arm() {
   delay(1000);
 }
 
-// Fonction pour déplacer le bras en fonction des coordonnées du tuyau
-void move_arm_to_position(int x, int y) {
+// Fonction pour déplacer le bras en fonction des coordonnées et de l'orientation du tuyau
+void move_arm_to_position(int x, int y, float angle) {
   // Mappage x et y aux angles des servos, à ajuster selon votre configuration mécanique.
   int angle1 = map(x, 0, 640, 0, 180);  // Mappage x aux angles du servo1
   int angle2 = map(y, 0, 480, 0, 180);  // Mappage y aux angles du servo2
+  int angle3 = map((int)angle, -90, 90, 0, 180); // Mappage de l'orientation à servo3 (exemple)
 
-  servo1.write(angle1);  // Ajuster pour se déplacer vers l'axe X
+  servo1.write(angle1);  // Axe X
   delay(500);
-  servo2.write(angle2);  // Ajuster pour se déplacer vers l'axe Y
+  servo2.write(angle2);  // Axe Y
+  delay(500);
+  servo3.write(angle3);  // Orientation
   delay(500);
 
   Serial.print("Déplacement vers X: ");
   Serial.println(angle1);
   Serial.print("Déplacement vers Y: ");
   Serial.println(angle2);
+  Serial.print("Orientation (Angle): ");
+  Serial.println(angle3);
 }
 
 // Fonction pour saisir le tuyau (actionner le gripper)

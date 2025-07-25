@@ -30,23 +30,26 @@ def load_annotations(file_path, image_width, image_height):
         annotations.append((x_center, y_center, width, height))
     return annotations
 
-def get_pipe_contour(contours):
-    best_contour = None
-    max_area = 0
+def extract_pipes(contours):
+    """Retourne une liste de tuyaux détectés sous forme de dicts (centre, longueur, angle, contour)."""
+    pipes = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area > 200:  # Ignorer les très petits contours
+        if area > 200:
             rect = cv2.minAreaRect(contour)
             width, height = rect[1]
             aspect_ratio = min(width, height) / max(width, height)
-            
-            # Critères pour identifier un tuyau
             if width > 5 and height > 0 and aspect_ratio < 0.3:
-                if area > max_area:
-                    max_area = area
-                    best_contour = contour
-    
-    return best_contour
+                pipe = {
+                    'center': rect[0],
+                    'length': max(width, height),
+                    'angle': rect[2],
+                    'contour': contour,
+                    'box': cv2.boxPoints(rect)
+                }
+                pipes.append(pipe)
+    return pipes
+
 
 cv2.namedWindow('Caméra - Tuyau détecté', cv2.WINDOW_NORMAL)
 
@@ -71,23 +74,32 @@ while True:
     cleaned_thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
     
     contours, _ = cv2.findContours(cleaned_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    pipe_contour = get_pipe_contour(contours)
+    pipes = extract_pipes(contours)
     
-    if pipe_contour is not None:
-        # Trouver le rectangle englobant et afficher le contour
-        rect = cv2.minAreaRect(pipe_contour)
-        box = cv2.boxPoints(rect)
-        box = np.int0(box)
+    if pipes:
+        # Trier par longueur décroissante (ou autre critère)
+        pipes.sort(key=lambda p: p['length'], reverse=True)
+        main_pipe = pipes[0]
+        x_center, y_center = map(int, main_pipe['center'])
+        length = main_pipe['length']
+        angle = main_pipe['angle']
+        box = np.int0(main_pipe['box'])
         cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
-        
-        # Calculer la longueur du tuyau
-        width, height = rect[1]
-        length = max(width, height)
-        cv2.putText(frame, f"Longueur: {length:.1f} px", (int(rect[0][0]), int(rect[0][1] - 20)), 
+        cv2.putText(frame, f"Longueur: {length:.1f} px", (x_center, y_center - 20), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        
-        print(f"Tuyau détecté - Longueur: {length:.1f} pixels")
-        send_to_arduino(f"Longueur:{length:.1f}")  # Envoyer les informations à l'Arduino
+        cv2.circle(frame, (x_center, y_center), 5, (255, 0, 0), -1)
+        cv2.putText(frame, f"X:{x_center} Y:{y_center} Angle:{angle:.1f}", (x_center, y_center + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        print(f"Tuyau détecté - Longueur: {length:.1f} px, X: {x_center}, Y: {y_center}, Angle: {angle:.1f}")
+        # Envoyer toutes les infos à l'Arduino au format attendu
+        send_to_arduino(f"X:{x_center},Y:{y_center},Length:{length:.1f},Angle:{angle:.1f}")
+        # Lecture du retour d'état de l'Arduino
+        try:
+            status_line = ser.readline().decode().strip()
+            if status_line.startswith("STATUS:"):
+                print(f"[Arduino] {status_line}")
+        except Exception as e:
+            print(f"Erreur lecture retour Arduino : {e}")
     else:
         print("Aucun tuyau détecté")
     
